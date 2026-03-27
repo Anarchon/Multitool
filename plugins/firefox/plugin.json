@@ -1,0 +1,12 @@
+{
+  "id": "firefox.gecko",
+  "name": "Firefox Plugin",
+  "version": "1.0.0",
+  "entry_library": "bin/firefox_plugin.dll",
+  "host": {
+    "process": "plugin_host.exe",
+    "restart": { "enabled": true, "max_attempts": 5 }
+  },
+  "capabilities": ["browser", "gecko"],
+  "abi": 2
+}
