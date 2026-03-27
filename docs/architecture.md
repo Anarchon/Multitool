@@ -133,3 +133,12 @@ Alternativ:
 - DLL erlaubt modulare native Erweiterung mit direkter API-Nähe (Gecko/CEF/Scintilla)
 - Separater Host-Prozess kapselt Crash-Risiko vollständig
 - Kombiniert Performance/Flexibilität (DLL) mit Stabilität/Isolation (Prozessgrenze)
+
+## 13) Beispiel: Gecko-Plugin
+
+Ein konkretes Gecko-Plugin-Skelett liegt in `plugins/gecko_plugin/gecko_plugin.cpp` und implementiert:
+- `navigate` (URL setzen)
+- `current_url` (Statusabfrage)
+- `simulate_crash` (Crash-Test für Supervisor/Recovery)
+
+Damit lassen sich mehrere Firefox/Gecko-Instanzen parallel in getrennten Host-Prozessen testen.

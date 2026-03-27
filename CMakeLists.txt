@@ -26,3 +26,9 @@ add_library(scintilla_plugin SHARED
 )
 target_link_libraries(scintilla_plugin PRIVATE plugin_api)
 target_compile_definitions(scintilla_plugin PRIVATE BUILDING_PLUGIN_DLL=1)
+
+add_library(firefox_plugin SHARED
+  plugins/gecko_plugin/gecko_plugin.cpp
+)
+target_link_libraries(firefox_plugin PRIVATE plugin_api)
+target_compile_definitions(firefox_plugin PRIVATE BUILDING_PLUGIN_DLL=1)
