@@ -14,26 +14,34 @@
 
 namespace mt {
 
-constexpr std::uint32_t kPluginAbiVersion = 1;
+constexpr std::uint32_t kPluginAbiVersion = 2;
+
+struct InstanceContext {
+  const char* plugin_id;
+  const char* instance_id;
+  const char* config_path;
+  const char* data_dir;
+};
 
 struct PluginHostCallbacks {
-  void (*log)(int level, const char* message) noexcept;
-  void (*emit_event)(const char* json_event) noexcept;
+  void (*log)(int level, const char* instance_id, const char* message) noexcept;
+  void (*emit_event)(const char* instance_id, const char* json_event) noexcept;
 };
 
 struct PluginInfo {
   std::uint32_t abi_version;
-  const char* id;
+  const char* plugin_id;
   const char* name;
   const char* version;
   const char* capabilities_csv;
 };
 
 struct PluginVTable {
-  bool (*init)(const PluginHostCallbacks* callbacks, const char* init_json) noexcept;
+  bool (*initialize)(const InstanceContext* context, const PluginHostCallbacks* callbacks) noexcept;
   bool (*start)() noexcept;
-  bool (*stop)() noexcept;
-  bool (*handle_command)(const char* command_json, char* response_buf, std::uint32_t response_buf_size) noexcept;
+  bool (*request_stop)(int timeout_ms) noexcept;
+  bool (*command)(const char* command_json, char* response_buf, std::uint32_t response_buf_size) noexcept;
+  bool (*health_check)(char* response_buf, std::uint32_t response_buf_size) noexcept;
   void (*shutdown)() noexcept;
 };
 

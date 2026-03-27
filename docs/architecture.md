@@ -1,123 +1,135 @@
-# Multitool Plugin-Architektur (C++)
+# Robustes Multitool-Plugin-System (Windows-first, C++)
 
-## 1) Architekturdiagramm (Textform)
+## 1) Architekturübersicht
+
+Die Architektur trennt strikt:
+1. **Main Application** (GUI + Supervisor + Routing)
+2. **Plugin Host Process** (genau 1 Prozess pro Plugin-Instanz)
+3. **Plugin DLL** (unsicherer/nativer Code)
+
+**Sicherheitsregel:** Main lädt **nie** Plugin-DLLs direkt.
+
+## 2) Architekturdiagramm (Text)
 
 ```text
 +--------------------------------------------------------------------------------+
-|                                Main Process                                    |
+| MAIN APP (GUI + Supervisor + PluginRegistry + InstanceManager + IPC Client)    |
 |--------------------------------------------------------------------------------|
-| PluginRegistry | Supervisor/Watchdog | IPC Router | UI/CLI/API Layer           |
-+---------------------------+--------------------+-------------------------------+
-                            |                    |
-            JSONL over pipe |                    | JSONL over pipe
-                            v                    v
-                +--------------------+  +--------------------+
-                | Plugin Host A      |  | Plugin Host B      |
-                | (gecko.host.exe)   |  | (cef.host.exe)     |
-                |--------------------|  |--------------------|
-                | DLL Loader         |  | DLL Loader         |
-                | Crash Guard        |  | Crash Guard        |
-                | Gecko Plugin DLL   |  | CEF Plugin DLL     |
-                +--------------------+  +--------------------+
-                            |                    |
-                            |                    |
-                            v                    v
-                     geckoview/Firefox      Chromium Embedded
-                     APIs + native code      Framework APIs
+| Plugin-Typen (Definitionen)            Laufende Instanzen (plugin_id+instance) |
++---------------------------+----------------------+-----------------------------+
+                            | Start/Stop/Status/Command via IPC                 
+          +-----------------+--------------------------+------------------------+
+          |                                            |                        |
+          v                                            v                        v
++---------------------------+               +---------------------------+   ...
+| HOST PROCESS inst=ff#1    |               | HOST PROCESS inst=ff#2    |
+| plugin_id=firefox.gecko   |               | plugin_id=firefox.gecko   |
+|---------------------------|               |---------------------------|
+| DLL Loader + ABI Check    |               | DLL Loader + ABI Check    |
+| Heartbeat + Timeout       |               | Heartbeat + Timeout       |
+| firefox_plugin.dll        |               | firefox_plugin.dll        |
++---------------------------+               +---------------------------+
+          |
+          v
++---------------------------+
+| HOST PROCESS inst=cef#1   |
+| plugin_id=chromium.cef    |
+| cef_plugin.dll            |
++---------------------------+
 ```
 
-**Isolation-Regel:** Ein Absturz in `Plugin Host A` betrifft nur Gecko; `Plugin Host B` (CEF) und Main bleiben stabil.
+## 3) Instanzmodell
 
-## 2) Projektstruktur
+- **PluginDefinition** = statischer Plugin-Typ (`plugin_id`, Name, Version, DLL-Pfad)
+- **PluginInstance** = laufende Instanz (`instance_id`, Status, eigener Host-Prozess, eigene IPC)
+- **TabViewModel** = GUI-Repräsentation einer Instanz (`tab_id -> instance_id`)
 
-```text
-Multitool/
-├─ CMakeLists.txt
-├─ docs/
-│  └─ architecture.md
-├─ include/shared/
-│  ├─ plugin_api.hpp          # stabiles C-ABI Interface
-│  └─ ipc_contract.hpp        # IPC-Vertrag (JSONL)
-├─ src/main/
-│  ├─ main.cpp                # bootstrap main process
-│  ├─ plugin_registry.hpp/.cpp
-│  └─ supervisor.hpp/.cpp
-├─ src/host/
-│  ├─ plugin_host.cpp         # Host-Prozess + IPC loop
-│  └─ dll_loader.hpp/.cpp     # DLL laden, ABI prüfen
-└─ plugins/
-   ├─ scintilla/
-   │  └─ plugin.json          # Metadaten
-   └─ scintilla_plugin/
-      └─ scintilla_plugin.cpp # Beispiel-DLL
-```
+Status pro Instanz:
+- Starting
+- Running
+- Stopping
+- Stopped
+- Crashed
 
-## 3) Gemeinsames Plugin-Interface
+## 4) Lebenszyklus
 
-- C-ABI mit Exporten `GetPluginInfo`, `GetPluginVTable`.
-- Kein C++-Objekt über DLL-Grenze (ABI-sicher).
-- Host stellt Callback-Tabelle (`log`, `emit_event`) bereit.
+`Discover -> LoadDefinition -> StartInstance -> HostSpawn -> DLL Initialize -> Start -> Running -> Stop/Shutdown -> Unload`
 
-## 4) Host-Interface zum Laden von DLL-Plugins
+Crash-Pfad:
+`Running -> HostExit/Timeout -> Crashed -> optional Restart (nur diese Instanz)`
 
-- `DllLoader::load(path, error)`:
-  - lädt DLL (`LoadLibrary`/`dlopen`)
-  - resolved Exporte
-  - prüft `abi_version`
-- `DllLoader::unload()` entlädt sauber.
+## 5) IPC-Strategie (konkret)
 
-## 5) IPC-Vertrag Main <-> Host
+Verwendet wird ein **line-basiertes Frame-Protokoll** (lokal, robust debuggbar):
+- Ein Frame pro Zeile
+- `key=value;key=value`
 
-- Transport: `JSONL` über stdin/stdout Pipes (einfach, robust, gut debuggbar).
-- Requests: `load`, `start`, `command`, `stop`, `shutdown`.
-- Responses: `loaded`, `response`, `event`, `crash`.
-- Erweiterbar über `type` + optionale Felder.
+Beispiele:
+- Request: `cmd=start;request_id=42;instance_id=firefox.gecko#1`
+- Request: `cmd=command;payload={"action":"navigate"}`
+- Response/Event: `event=response;ok=true;payload={...}`
+- Heartbeat: `event=heartbeat;instance_id=...`
 
-## 6) Plugin-Metadaten
+Ziele erfüllt:
+- Start/Stop/Status
+- Kommandos
+- Logs/Events
+- Heartbeat/Timeout-Erkennung
 
-Siehe `plugins/scintilla/plugin.json`.
+## 6) GUI-Tab-Verhalten
 
-Wichtig:
-- `id`, `version`, `entry_library`
-- Restart-Policy (`max_attempts`, Backoff)
-- `abi` und `min_main_api`
+- Jeder Tab entspricht genau einer `instance_id`.
+- Titel z. B. `Firefox Plugin firefox.gecko#2`.
+- Klick auf X:
+  1. `stop_instance(instance_id, timeout)`
+  2. Graceful shutdown via IPC
+  3. Bei Timeout: Force kill nur dieses Host-PID
+  4. Entferne nur diesen Tab
 
-## 7) Watchdog/Supervisor-Konzept
+## 7) Watchdog / Supervisor
 
-- Main hält pro Plugin genau einen Host-Zustand (`HostState`).
-- Erkennt Crash über Prozess-Exit oder Heartbeat-Timeout.
-- Restart-Policy pro Plugin (optional, begrenzt).
-- Kein globaler Restart: nur betroffener Host wird neu gestartet.
+- Main führt Instanzmap: `instance_id -> PluginInstance`.
+- Heartbeat-Timer pro Instanz.
+- Bei Crash/Timeout: markiere `Crashed`, optional instanzspezifischer Restart.
+- Restart-Limit pro Instanz (`max_restart_attempts`).
 
-## 8) Beispielcode
+## 8) ABI/DLL-Sicherheit
 
-- Main: `src/main/main.cpp`, `supervisor.*`, `plugin_registry.*`
-- Host: `src/host/plugin_host.cpp`, `dll_loader.*`
-- Plugin: `plugins/scintilla_plugin/scintilla_plugin.cpp`
+- Stabiler C-ABI-Vertrag (`GetPluginInfo`, `GetPluginVTable`)
+- `kPluginAbiVersion` hart geprüft
+- Keine C++-Objekte über DLL-Grenze
+- Nur POD/C-Strings + Funktionszeiger
 
-## 9) Deployment und Versionierung
+## 9) Thread-Sicherheit und Robustheit
 
-- Plugin-Paket pro Plugin:
+- Plugin-intern `std::atomic` für Running-State
+- Keine Exceptions über ABI-Grenzen
+- Defensives Parsing im Host
+- Timeouts für Stop und Heartbeats
+- Ressourcenfreigabe pro Instanz (kein globales Shared-Fate)
+
+## 10) Empfehlung Technologie-Stack
+
+**Empfehlung für dieses Projekt:**
+- **C++ + Qt (GUI)** für produktive Windows-Tooling-Apps mit stabilem Tab-UI und Prozesssteuerung.
+- **C++ Hosts + DLLs** für native Browser/Gecko/CEF Integration.
+
+Alternativ:
+- C# (WPF) als Main/Supervisor + C++ Host/DLL ist gut für schnelle GUI-Entwicklung.
+- Reines ImGui ist pragmatisch für interne Tools, aber weniger „Desktop-App-poliert" als Qt.
+
+## 11) Deployment/Versionierung
+
+- Paket pro Plugin-Typ:
   - `plugin.json`
   - `bin/<plugin>.dll`
-  - optionale Ressourcen
-- ABI-Version strikt (`kPluginAbiVersion`).
-- SemVer:
-  - Main API (`min_main_api`)
-  - Plugin-Version separat
-- CI-Prüfung: Host lädt jedes Plugin im Smoke-Test.
+  - optionale Ressourcen/Config
+- SemVer auf Plugin-Version
+- Harte ABI-Version (`abi` + `kPluginAbiVersion`)
+- Main-API-Kompatibilität via `min_main_api`
 
-## 10) Sichere Fehlerbehandlung
+## 12) Warum DLL + separater Host-Prozess?
 
-- Plugin-Crash darf nie Main crashen (separater Prozess).
-- Jede IPC-Operation mit Timeout.
-- Defensive Parsing-Regeln für JSON.
-- Keine Exceptions über C-ABI-Grenze.
-- Thread-Safety im Plugin via atomics/mutex.
-- Circuit Breaker: nach N Crashes Plugin deaktivieren.
-
-## C#-Alternative (optional)
-
-Wenn Prozessmanagement und Telemetrie im Fokus stehen, kann der **Main/Supervisor** in C# umgesetzt werden
-(`Process`, `System.IO.Pipes`, `async/await`), während Host+Plugins in C++ bleiben. Dadurch wird Orchestrierung einfacher,
-bei gleichbleibender nativer Integrationsfähigkeit (Gecko/CEF/Scintilla).
+- DLL erlaubt modulare native Erweiterung mit direkter API-Nähe (Gecko/CEF/Scintilla)
+- Separater Host-Prozess kapselt Crash-Risiko vollständig
+- Kombiniert Performance/Flexibilität (DLL) mit Stabilität/Isolation (Prozessgrenze)

@@ -11,6 +11,7 @@ add_executable(multitool_main
   src/main/main.cpp
   src/main/plugin_registry.cpp
   src/main/supervisor.cpp
+  src/main/tab_controller.cpp
 )
 target_link_libraries(multitool_main PRIVATE plugin_api)
 

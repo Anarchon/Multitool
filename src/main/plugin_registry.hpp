@@ -6,8 +6,8 @@
 
 namespace mt {
 
-struct PluginManifest {
-  std::string id;
+struct PluginDefinition {
+  std::string plugin_id;
   std::string name;
   std::string version;
   std::string entry_library;
@@ -18,7 +18,7 @@ struct PluginManifest {
 class PluginRegistry {
  public:
   explicit PluginRegistry(std::filesystem::path root);
-  std::vector<PluginManifest> discover() const;
+  std::vector<PluginDefinition> discover() const;
 
  private:
   std::filesystem::path root_;

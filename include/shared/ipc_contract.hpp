@@ -1,26 +1,45 @@
 #pragma once
 
+#include <optional>
+#include <sstream>
 #include <string>
+#include <unordered_map>
 
 namespace mt::ipc {
 
-// JSONL wire format (one JSON object per line)
-// Main -> Host requests:
-// {"type":"load","plugin_path":"...","plugin_id":"..."}
-// {"type":"start","request_id":"r-1"}
-// {"type":"command","request_id":"r-2","command":{"action":"open"}}
-// {"type":"stop","request_id":"r-3"}
-// {"type":"shutdown","request_id":"r-4"}
-//
-// Host -> Main responses/events:
-// {"type":"loaded","ok":true,"plugin":{"id":"...","version":"..."}}
-// {"type":"response","request_id":"r-2","ok":true,"payload":{...}}
-// {"type":"event","event":{"topic":"telemetry"}}
-// {"type":"crash","reason":"unhandled exception"}
+// Wire format: one line per frame, semicolon-separated key-value pairs.
+// Example:
+// cmd=start;request_id=42;instance_id=inst-0001
+// event=log;instance_id=inst-0001;level=1;message=started
 
-struct Envelope {
-  std::string type;
-  std::string raw_json;
-};
+inline std::string make_frame(const std::unordered_map<std::string, std::string>& fields) {
+  std::ostringstream out;
+  bool first = true;
+  for (const auto& [k, v] : fields) {
+    if (!first) out << ';';
+    first = false;
+    out << k << '=' << v;
+  }
+  return out.str();
+}
+
+inline std::unordered_map<std::string, std::string> parse_frame(const std::string& line) {
+  std::unordered_map<std::string, std::string> fields;
+  std::stringstream ss(line);
+  std::string part;
+  while (std::getline(ss, part, ';')) {
+    const auto pos = part.find('=');
+    if (pos == std::string::npos) continue;
+    fields[part.substr(0, pos)] = part.substr(pos + 1);
+  }
+  return fields;
+}
+
+inline std::optional<std::string> get(const std::unordered_map<std::string, std::string>& fields,
+                                      const std::string& key) {
+  auto it = fields.find(key);
+  if (it == fields.end()) return std::nullopt;
+  return it->second;
+}
 
 } // namespace mt::ipc
