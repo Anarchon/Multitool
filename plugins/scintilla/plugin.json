@@ -1,0 +1,19 @@
+{
+  "id": "scintilla.editor",
+  "name": "Scintilla Editor Plugin",
+  "version": "2.0.0",
+  "entry_library": "bin/scintilla_plugin.dll",
+  "host": {
+    "process": "plugin_host",
+    "ipc": "jsonl-stdio",
+    "heartbeat_ms": 2000,
+    "restart": {
+      "enabled": true,
+      "max_attempts": 5,
+      "backoff_ms": [250, 1000, 5000]
+    }
+  },
+  "capabilities": ["editor", "syntax-highlighting"],
+  "min_main_api": "1.0.0",
+  "abi": 2
+}

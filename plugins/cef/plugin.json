@@ -1,0 +1,12 @@
+{
+  "id": "chromium.cef",
+  "name": "CEF Plugin",
+  "version": "1.0.0",
+  "entry_library": "bin/cef_plugin.dll",
+  "host": {
+    "process": "plugin_host.exe",
+    "restart": { "enabled": true, "max_attempts": 5 }
+  },
+  "capabilities": ["browser", "cef"],
+  "abi": 2
+}
